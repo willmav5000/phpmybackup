@@ -4,6 +4,10 @@
 	Author: Ralph Slooten
 	Website: http://www.axllent.org/
 	------------------------------------------------------------------------
+	Modifications:
+	Author: Will Mather
+	Twitter: @willmav5000
+	------------------------------------------------------------------------
 	License: Distributed under the Lesser General Public License (LGPL)
 		http://www.gnu.org/copyleft/lesser.html
 	This program is distributed in the hope that it will be useful - WITHOUT
@@ -11,6 +15,12 @@
 	FITNESS FOR A PARTICULAR PURPOSE.
 	------------------------------------------------------------------------
 	Changelog:
+	01/12/2014 - 0.9 - Added Email backups to configured email address (Will Mather)
+					 - Added PHPMailer class (Will Mather)
+					 - Added SMTP or PHP mail() option (Will Mather)
+					 - Added Global SMTP configurations (Will Mather)
+					 - Fixed issue with non-alphanumerical database details (Will Mather)
+					 - Added filename variable (Will Mather)
 	12/01/2013 - 0.8 - Wildcard support	
 	11/01/2013 - 0.7 - Switch to using mysqldump client
 	12/11/2011 - 0.6 - Add bin2hex option (default) for blob fields
@@ -19,11 +29,30 @@
 	25/04/2010 - 0.3 - Add UFT-8 encoding for MySQL connection & file writing
 */
 
+require_once('PHPMailer/PHPMailerAutoload.php');
+
 class MYSQL_DUMP{
 	var $dbhost = ""; // MySQL Host
 	var $dbuser = ""; // MySQL Username
 	var $dbpwd = ""; // MySQL password
 	var $conflags = 'MYSQL_CLIENT_COMPRESS';
+	var $backupname = "backup";
+
+	var $email_backup		= true; // Enable email emails
+	var $email_to			= "example@mail.com"; // Email recipient
+	var $email_to_name		= "Your Name";
+	var $email_from			= "example@mail.com";
+	var $email_from_name	= "My Name";
+	var $email_subject		= "Database Backup";
+	var $email_date			= true;
+	var $smtp_mail			= false;
+	var $smtp_host			= "smtp.gmail.com";
+	var $smtp_port 			= 587;
+	var $smtp_secure		= "tls";
+	var $smtp_auth			= true;
+	var $smtp_user			= "";
+	var $smtp_pass			= "";
+
 	/*
 	 * Array of database names to ignore (supports wildcards)
 	 * Completely ignored database and all it's tables
@@ -52,14 +81,14 @@ class MYSQL_DUMP{
 	var $backupRepository = false;
 	var $backupsToKeep = 180;
 	var $header = '';
-	var $timezone = 'Pacific/Auckland';
+	var $timezone = 'Europe/London';
 	var $tar_binary = '/bin/tar';
 	var $mysqldump_binary = '/usr/bin/mysqldump';
 	var $savePermissions = 0664; // Save files with the following permissions
 
 	public function dumpDatabases() {
 		date_default_timezone_set($this->timezone);
-		$this->backupFormat = date('Y-m-d');
+		$this->backupFormat = $this->backupname.date('_d-m-Y_H:i');
 		$this->backupDir = rtrim($this->backupDir, '/');
 		if (!$this->backupRepository) $this->backupRepository = $this->backupDir.'/repo';
 		$this->liveDatabases = array();
@@ -85,7 +114,7 @@ class MYSQL_DUMP{
 		if (is_dir($this->backupDir.'/'.$this->backupFormat)) $this->recursive_remove_directory($this->backupDir.'/'.$this->backupFormat);
 
 
-		$this->header  = '-- PHP-MySql Dump v0.8'.$this->lineEnd ;
+		$this->header  = '-- PHP-MySql Dump v0.9'.$this->lineEnd ;
 		$this->header .= '-- Host: '.$this->dbhost.$this->lineEnd;
 		$this->header .= '-- Date: '.date('F j, Y, g:i a').$this->lineEnd;
 		$this->header .= '-- -------------------------------------------------'.$this->lineEnd;
@@ -166,6 +195,10 @@ class MYSQL_DUMP{
 		$this->debug('Deleting old backups');
 		$this->rotateFiles($this->backupDir);
 
+		// Check if email backups are enabled
+		if($this->email_backup) {
+			$this->emailBackup();
+		}
 	}
 
 	private function syncTables($db) {
@@ -202,9 +235,9 @@ class MYSQL_DUMP{
 
 				$dump_options = array(
 					'-C', // Compress connection
-					'-h'.$this->dbhost, // Host
-					'-u'.$this->dbuser, // User
-					'-p'.$this->dbpwd, // Password
+					'-h"'.$this->dbhost.'"', // Host
+					'-u"'.$this->dbuser.'"', // User
+					'-p"'.$this->dbpwd.'"', // Password
 					'--compact' // no need to database info for every table
 				);
 
@@ -348,9 +381,9 @@ class MYSQL_DUMP{
 		}
 	}
 
-	private function errorMessage($msg) {echo $msg.$this->lineEnd;}
+	private function errorMessage($msg) {echo $msg.$this->lineEnd."<br>";}
 
-	private function debug($msg) {if ($this->showDebug) echo $msg.$this->lineEnd;}
+	private function debug($msg) {if ($this->showDebug) echo $msg.$this->lineEnd."<br>";}
 
 	private function db_query($query) {
 		$result = mysql_query($query);
@@ -380,4 +413,54 @@ class MYSQL_DUMP{
 		}
 	}
 
+	private function emailBackup()
+	{
+		$html = '<html><p>The database has been backed up</p>Please see attached.</html>';
+		$mail = new PHPMailer();
+
+		// Check if using mail() function or SMTP authentication
+		if($this->smtp_mail)
+		{
+			// Configure SMTP authentication
+			$mail->IsSMTP();
+			$mail->Host       = $this->smtp_host;
+			$mail->Port       = $this->smtp_port;
+			$mail->SMTPSecure = $this->smtp_secure;
+			$mail->SMTPAuth   = $this->smtp_auth;
+			$mail->Username   = $this->smtp_user;
+			$mail->Password   = $this->smtp_pass;
+		} else {
+			// Use mail() funciton
+			$mail->IsMail();
+		}
+
+		// Set the from email address
+		$mail->SetFrom($this->email_from, $this->email_from_name);
+
+		// Set the to email address
+		$mail->AddAddress($this->email_to, $this->email_to_name);
+		// Set the email subject
+		$mail->Subject = $this->email_subject;
+		if($this->email_date)
+		{
+			// Append date to email subject
+			$mail->Subject .= " - ".date("F j, Y H:ia");
+		}
+
+		// Set email format to HTML
+		$mail->isHTML(true);
+
+		// Prepare the email body
+		$mail->MsgHTML($html);
+
+		// Attach the compressed backup
+		$mail->AddAttachment($this->backupDir.'/'.$this->backupFormat.'.tar.bz2');
+		// Send the email
+		if(!$mail->Send()) {
+			$this->debug("Message could not be sent.");
+			$this->debug("Mailer Error: " . $mail->ErrorInfo);
+		} else {
+			$this->debug("Email has been sent to ".$this->email_to."<br>");
+		}
+	}
 }

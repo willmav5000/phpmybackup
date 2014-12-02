@@ -50,6 +50,12 @@ Usage
     $db->backupDir = '/mnt/backups/mysql/';
     $db->ignoreList = array('test','unimportant_db');
     $db->emptyList = array('largedb.large_table1','largedb.cachetable');
+    $db->email_backup = true;
+    $db->email_to = "example@mail.com";
+    $db->email_to_name = "Your Name";
+    $db->email_from = "example@mail.com";
+    $db->email_from_name = "My Name";
+    $db->email_subject = "Database Backup";
     $db->dumpDatabases();
 
 -   The above command will dump all databases except for ‘test’ and
